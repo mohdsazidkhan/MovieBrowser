@@ -1,22 +1,72 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
+import SearchBar from './SearchBar';
+import MovieList from './MovieList';
+import Loader from './Loader';
 import './App.css';
-import useApi from './useApi';
 
 function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [genre, setGenre] = useState('');
-  const [releaseYearRange, setReleaseYearRange] = useState([2000, 2024]);
-  const [ratingRange, setRatingRange] = useState([0, 10]);
+  const [releaseYear, setReleaseYear] = useState('');
+  const [rating, setRating] = useState('');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [favorites, setFavorites] = useState([]);
 
-  const { data, loading, error } = useApi(
-    '/discover/movie',
-    page,
-    genre,
-    releaseYearRange,
-    ratingRange,
-    searchQuery
-  );
+  const apiUrl = searchQuery.trim() !== '' ? '/search/movie' : '/discover/movie';
+
+  useEffect(() => {
+    const savedFavorites = JSON.parse(localStorage.getItem('favorites')) || [];
+    setFavorites(savedFavorites);
+  }, []);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (searchQuery.trim() === '' && !data) {
+        setLoading(true);
+      }
+      setError(null);
+      try {
+        const params = {
+          page,
+          with_genres: genre,
+          'release_date.gte': `${releaseYear || 1900}-01-01`,
+          'release_date.lte': `${releaseYear || new Date().getFullYear()}-12-31`,
+          'vote_average.gte': rating || 0,
+          'vote_average.lte': rating || 10,
+          'language': 'hi-IN',
+          'region': 'IN',
+          'with_original_language': 'hi'
+        };
+
+        if (searchQuery.trim()) {
+          params.query = searchQuery;
+        }
+
+        const options = {
+          method: 'GET',
+          url: `${process.env.REACT_APP_TMDB_BASE_URL}${apiUrl}`,
+          headers: {
+            accept: 'application/json',
+            Authorization: `Bearer ${process.env.REACT_APP_TMDB_TOKEN}`
+          },
+          params
+        };
+
+        const response = await axios.request(options);
+        setData(response.data);
+      } catch (err) {
+        setError(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [apiUrl, page, genre, releaseYear, rating, searchQuery]);
 
   const handleScroll = useCallback(() => {
     if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 50) {
@@ -31,108 +81,93 @@ function App() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  if (loading && page === 1) return <p>Loading...</p>;
+  useEffect(() => {
+    if (searchQuery.trim() !== '') {
+      setLoading(false);
+    } else {
+      setPage(1); 
+    }
+  }, [searchQuery]);
+
+  const handleFavorite = (movie) => {
+    let updatedFavorites = [...favorites];
+    const isFavorite = updatedFavorites.some((fav) => fav.id === movie.id);
+    if (isFavorite) {
+      updatedFavorites = updatedFavorites.filter((fav) => fav.id !== movie.id);
+    } else {
+      updatedFavorites.push(movie);
+    }
+    setFavorites(updatedFavorites);
+    localStorage.setItem('favorites', JSON.stringify(updatedFavorites));
+  };
+
+  const resetFilters = () => {
+    setSearchQuery('');
+    setGenre('');
+    setReleaseYear('');
+    setRating('');
+    setPage(1);
+  };
+
+  if (searchQuery.trim() === '' && loading && page === 1) return <Loader message="Loading Movies..." />;
   if (error) return <p>Error: {error.message}</p>;
 
   const filteredMovies = data?.results?.filter((movie) =>
     (genre ? movie?.genre_ids?.includes(parseInt(genre)) : true) &&
-    (new Date(movie.release_date).getFullYear() >= releaseYearRange[0] &&
-     new Date(movie.release_date).getFullYear() <= releaseYearRange[1]) &&
-    (movie.vote_average >= ratingRange[0] && movie.vote_average <= ratingRange[1])
+    (!releaseYear || new Date(movie.release_date).getFullYear() === parseInt(releaseYear)) &&
+    (!rating || movie.vote_average <= rating)
   ) || [];
 
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: currentYear - 1900 + 1 }, (_, i) => currentYear - i);
-  const ratings = Array.from({ length: 101 }, (_, i) => (i / 10).toFixed(1));
+  const ratings = Array.from({ length: 10 }, (_, i) => (i + 1).toString());
+
+  const genres = [
+    { id: 28, name: "Action" },
+    { id: 12, name: "Adventure" },
+    { id: 16, name: "Animation" },
+    { id: 35, name: "Comedy" },
+    { id: 80, name: "Crime" },
+    { id: 99, name: "Documentary" },
+    { id: 18, name: "Drama" },
+    { id: 10751, name: "Family" },
+    { id: 14, name: "Fantasy" },
+    { id: 36, name: "History" },
+    { id: 27, name: "Horror" },
+    { id: 10402, name: "Music" },
+    { id: 9648, name: "Mystery" },
+    { id: 10749, name: "Romance" },
+    { id: 878, name: "Science Fiction" },
+    { id: 10770, name: "TV Movie" },
+    { id: 53, name: "Thriller" },
+    { id: 10752, name: "War" },
+    { id: 37, name: "Western" }
+  ];
 
   return (
     <div className="container mx-auto">
-      <div className="flex flex-row justify-between items-center gap-2 my-4">
-        <input
-          type="text"
-          className="w-full sm:w-auto p-2 border border-gray-300 rounded text-white bg-transparent"
-          placeholder="Search for a movie..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        
-        <select
-          className="custom-select"
-          value={genre}
-          onChange={(e) => setGenre(e.target.value)}
-        >
-          <option value="">All Genres</option>
-          <option value="28">Action</option>
-          <option value="35">Comedy</option>
-          <option value="18">Drama</option>
-        </select>
-        
-        <select
-          className="custom-select"
-          value={releaseYearRange[0]}
-          onChange={(e) => setReleaseYearRange([parseInt(e.target.value), releaseYearRange[1]])}
-        >
-          {years.map(year => (
-            <option key={year} value={year}>{year}</option>
-          ))}
-        </select>
-        <select
-          className="custom-select"
-          value={releaseYearRange[1]}
-          onChange={(e) => setReleaseYearRange([releaseYearRange[0], parseInt(e.target.value)])}
-        >
-          {years.map(year => (
-            <option key={year} value={year}>{year}</option>
-          ))}
-        </select>
-        
-        <select
-          className="custom-select"
-          value={ratingRange[0]}
-          onChange={(e) => setRatingRange([parseFloat(e.target.value), ratingRange[1]])}
-        >
-          {ratings.map(rating => (
-            <option key={rating} value={rating}>{rating}</option>
-          ))}
-        </select>
-        <select
-          className="custom-select"
-          value={ratingRange[1]}
-          onChange={(e) => setRatingRange([ratingRange[0], parseFloat(e.target.value)])}
-        >
-          {ratings.map(rating => (
-            <option key={rating} value={rating}>{rating}</option>
-          ))}
-        </select>
-      </div>
+      <SearchBar
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        genre={genre}
+        setGenre={setGenre}
+        releaseYear={releaseYear}
+        setReleaseYear={setReleaseYear}
+        rating={rating}
+        setRating={setRating}
+        genres={genres}
+        years={years}
+        ratings={ratings}
+        resetFilters={resetFilters}
+      />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 py-4">
-        {filteredMovies.map((movie) => {
-          const truncatedTitle = movie.title.length > 18 ? `${movie.title.slice(0, 18)}...` : movie.title;
-          return (
-            <div
-              key={movie.id}
-              className="relative w-full h-[200px] sm:h-[250px] md:h-[300px] lg:h-[350px] xl:h-[400px] rounded-lg shadow-lg bg-cover bg-center"
-              style={{
-                backgroundImage: `url(${process.env.REACT_APP_TMDB_IMAGE_BASE_URL}/${movie.poster_path})`,
-              }}
-            >
-              <div className="absolute inset-0 bg-black bg-opacity-50 flex items-end rounded-lg">
-                <div className="w-full text-white p-4">
-                  <h3
-                    className="text-sm sm:text-base md:text-lg font-semibold"
-                    title={movie.title}
-                  >
-                    {truncatedTitle}
-                  </h3>
-                  <p className="text-xs sm:text-sm md:text-base">{movie.release_date}</p>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {loading && <p className='text-white'>Loading more...</p>}
+      <MovieList
+        movies={filteredMovies}
+        handleFavorite={handleFavorite}
+        favorites={favorites}
+      />
+
+      {loading && <Loader message="Loading more..." />}
     </div>
   );
 }
