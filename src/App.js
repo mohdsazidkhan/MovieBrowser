@@ -66,6 +66,7 @@ function App() {
     };
 
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiUrl, page, genre, releaseYear, rating, searchQuery]);
 
   const handleScroll = useCallback(() => {
